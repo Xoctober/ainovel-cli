@@ -28,9 +28,13 @@ func Run(ctx context.Context, deps Deps, opts Options) (*Result, error) {
 	}
 
 	if opts.Format == "" {
-		opts.Format = FormatTXT
+		f, err := inferFormat(opts.OutPath)
+		if err != nil {
+			return nil, err
+		}
+		opts.Format = f
 	}
-	if opts.Format != FormatTXT {
+	if opts.Format != FormatTXT && opts.Format != FormatEPUB {
 		return nil, fmt.Errorf("exp: 暂不支持的格式 %q", opts.Format)
 	}
 
@@ -101,7 +105,7 @@ func Run(ctx context.Context, deps Deps, opts Options) (*Result, error) {
 		if name == "" {
 			name = filepath.Base(deps.Store.Dir())
 		}
-		outPath = filepath.Join(deps.Store.Dir(), sanitizeFileName(name)+".txt")
+		outPath = filepath.Join(deps.Store.Dir(), sanitizeFileName(name)+"."+string(opts.Format))
 	}
 
 	if !opts.Overwrite {
@@ -118,18 +122,43 @@ func Run(ctx context.Context, deps Deps, opts Options) (*Result, error) {
 		locations = buildLocations(volumes)
 	}
 
-	text := renderTXT(progress.NovelName, premise, chapters, titleIdx, locations, bodies)
+	var data []byte
+	switch opts.Format {
+	case FormatTXT:
+		data = []byte(renderTXT(progress.NovelName, premise, chapters, titleIdx, locations, bodies))
+	case FormatEPUB:
+		buf, err := renderEPUB(progress.NovelName, premise, chapters, titleIdx, locations, bodies)
+		if err != nil {
+			return nil, fmt.Errorf("渲染 EPUB 失败：%w", err)
+		}
+		data = buf
+	}
 
-	if err := atomicWrite(outPath, []byte(text)); err != nil {
+	if err := atomicWrite(outPath, data); err != nil {
 		return nil, fmt.Errorf("写入失败：%w", err)
 	}
 
 	return &Result{
 		Path:     outPath,
 		Chapters: len(chapters),
-		Bytes:    len(text),
+		Bytes:    len(data),
 		Skipped:  skipped,
 	}, nil
+}
+
+// inferFormat 从输出路径后缀推断格式。空路径回退 TXT；未知后缀报错（避免静默错误）。
+func inferFormat(path string) (Format, error) {
+	if path == "" {
+		return FormatTXT, nil
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case "", ".txt":
+		return FormatTXT, nil
+	case ".epub":
+		return FormatEPUB, nil
+	default:
+		return "", fmt.Errorf("无法从扩展名 %q 推断格式（支持 .txt / .epub）", filepath.Ext(path))
+	}
 }
 
 // atomicWrite 与 store/io.go 的 WriteFile 同形：tmp + sync + rename。

@@ -14,6 +14,8 @@ type Format string
 const (
 	// FormatTXT 纯文本输出。
 	FormatTXT Format = "txt"
+	// FormatEPUB 标准 EPUB 3 容器（zip + xhtml）。
+	FormatEPUB Format = "epub"
 )
 
 // Options 控制导出行为。zero-value 等价于"导出全本到默认路径，文件存在时报错"。
@@ -21,10 +23,12 @@ const (
 // 标题页（书名 + premise）和卷弧分隔不暴露开关：前者是天然的序言，后者是
 // 长篇结构的骨架，两者都是"让产物更可读"的固定行为。
 type Options struct {
-	// Format 空字符串视为 FormatTXT。
+	// Format 空字符串时由 OutPath 后缀推断（.txt → TXT，.epub → EPUB）；
+	// OutPath 也为空时回退 FormatTXT。SDK 调用方可显式指定以跳过推断。
 	Format Format
 
-	// OutPath 输出文件路径；空表示 {novelDir}/{NovelName}.txt（NovelName 为空则用目录名）。
+	// OutPath 输出文件路径；空表示 {novelDir}/{NovelName}.{ext}，
+	// ext 由 Format 决定（NovelName 为空则用目录名）。
 	OutPath string
 
 	// From / To 章节范围，闭区间。0 表示从第 1 章 / 到最后一章。

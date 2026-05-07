@@ -132,7 +132,7 @@ func TestRun_FromGreaterThanTo(t *testing.T) {
 
 func TestRun_UnsupportedFormat(t *testing.T) {
 	s, _ := newTestStore(t, "X", []int{1})
-	_, err := Run(context.Background(), Deps{Store: s}, Options{Format: Format("epub")})
+	_, err := Run(context.Background(), Deps{Store: s}, Options{Format: Format("pdf")})
 	if err == nil {
 		t.Fatal("expect error for unsupported format")
 	}
@@ -147,6 +147,90 @@ func TestRun_FallbackFileNameWhenNovelNameEmpty(t *testing.T) {
 	wantBase := filepath.Base(dir) + ".txt"
 	if filepath.Base(res.Path) != wantBase {
 		t.Errorf("Path base = %q want %q (fallback to dir name)", filepath.Base(res.Path), wantBase)
+	}
+}
+
+func TestInferFormat(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    Format
+		wantErr bool
+	}{
+		{"", FormatTXT, false},
+		{"book.txt", FormatTXT, false},
+		{"book.TXT", FormatTXT, false},
+		{"book.epub", FormatEPUB, false},
+		{"book.EPUB", FormatEPUB, false},
+		{"/abs/path/x.epub", FormatEPUB, false},
+		{"book", FormatTXT, false}, // 无后缀按 TXT
+		{"book.dat", "", true},
+		{"book.pdf", "", true},
+	}
+	for _, c := range cases {
+		got, err := inferFormat(c.in)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("inferFormat(%q) want error", c.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("inferFormat(%q): unexpected err: %v", c.in, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("inferFormat(%q) = %q want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRun_EPUB_FromExtension(t *testing.T) {
+	s, dir := newTestStore(t, "光斑", []int{1})
+	if err := s.Outline.SavePremise("光与影。"); err != nil {
+		t.Fatalf("save premise: %v", err)
+	}
+	if err := s.Outline.SaveOutline([]domain.OutlineEntry{{Chapter: 1, Title: "雨夜"}}); err != nil {
+		t.Fatalf("save outline: %v", err)
+	}
+
+	target := filepath.Join(dir, "out.epub")
+	res, err := Run(context.Background(), Deps{Store: s}, Options{OutPath: target})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Path != target {
+		t.Errorf("Path = %q want %q", res.Path, target)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// EPUB 是 zip，前 4 字节 PK 头
+	if len(data) < 4 || string(data[:2]) != "PK" {
+		t.Errorf("output does not look like a zip: %x", data[:min(8, len(data))])
+	}
+}
+
+func TestRun_DefaultPathFollowsFormat(t *testing.T) {
+	s, dir := newTestStore(t, "光斑", []int{1})
+	res, err := Run(context.Background(), Deps{Store: s}, Options{Format: FormatEPUB})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want := filepath.Join(dir, "光斑.epub")
+	if res.Path != want {
+		t.Errorf("Path = %q want %q", res.Path, want)
+	}
+}
+
+func TestRun_UnknownExtension(t *testing.T) {
+	s, _ := newTestStore(t, "X", []int{1})
+	_, err := Run(context.Background(), Deps{Store: s}, Options{OutPath: "/tmp/foo.dat"})
+	if err == nil {
+		t.Fatal("expect error for unknown extension")
+	}
+	if !strings.Contains(err.Error(), "扩展名") {
+		t.Errorf("error should mention extension: %v", err)
 	}
 }
 
