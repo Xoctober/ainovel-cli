@@ -205,10 +205,14 @@ ainovel-cli
 
 进入 TUI 后，启动阶段支持两种前置交互：
 
-- `快速开始`：少量关键选择后直接生成创作简报
-- `共创规划`：逐步补齐主角、冲突、基调等信息，再确认简报
+- `快速开始`：一句话直接进入创作
+- `共创规划`：与 AI 多轮对话澄清需求，**右侧实时同步整理出的创作指令草稿**；AI 每轮主动提供 1-3 条引导建议，按数字键一键填入输入框，按 `Ctrl+S` 进入正式创作
 
-两种模式最终都会收敛为同一份创作简报，再进入同一套创作引擎。
+两种模式最终都会收敛为同一份创作指令，再进入同一套创作引擎。
+
+### 管理多本小说
+
+每本小说绑定到启动目录，产物落在 `{cwd}/output/novel/`。换目录启动 = 换一本，`cd` 回去启动 = 自动从最近 checkpoint 恢复。配置 `~/.ainovel/config.json` 全局共享，无需复制。
 
 ### 配置文件
 
@@ -227,8 +231,7 @@ ainovel-cli
       "models": ["google/gemini-2.5-flash", "google/gemini-2.5-pro"]
     }
   },
-  "style": "default",
-  "context_window": 128000
+  "style": "default"
 }
 ```
 
@@ -259,6 +262,25 @@ ainovel-cli
 - **上下文** — 角色消失、时间线缺口、关系数据停滞
 
 每条发现包含：问题描述、数据证据、改进建议（指向具体的 prompt/flow/config）。
+
+## 导出
+
+在 TUI 中输入 `/export` 可把已完成的章节合并导出，默认 TXT，写到 `{novelDir}/{NovelName}.txt`。导出是只读操作，写作中途也可以随时拿"现阶段成品"，不影响 Coordinator 运行。
+
+格式由**输出路径后缀**决定（命令永远只这一行，零新增参数）：
+
+```text
+/export                            # 默认 TXT，{novelDir}/{NovelName}.txt
+/export ~/光斑.txt                  # 后缀 .txt → TXT
+/export ~/光斑.epub                 # 后缀 .epub → EPUB（Apple Books / 微信读书 / Kindle 转换器可读）
+/export from=10 to=30 --overwrite  # 章节区间 + 覆盖
+/export from=10 ~/x.epub --overwrite
+```
+
+- **TXT** — 标题页（`《书名》` + premise）→ 卷分隔 → 弧分隔 → 章节正文，长篇分层模式自动加卷/弧分隔。
+- **EPUB** — EPUB 3 标准容器，含封面页、目录、按章拆分的 XHTML，标识符基于内容稳定派生（重导出同一本书阅读器识别为更新版本）。不带封面图。
+
+范围内未完成的章节会跳过并显示在结果里，不算错误。
 
 #### 按角色使用不同模型
 
