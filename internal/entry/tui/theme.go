@@ -74,6 +74,7 @@ var categoryColors = map[string]lipgloss.AdaptiveColor{
 	"DONE":     colorSuccess,
 	"TOOL":     colorTool,
 	"SYSTEM":   colorAccent,
+	"USER":     colorAccent2,
 	"REVIEW":  colorReview,
 	"CHECK":   colorSuccess,
 	"ERROR":   colorError,

@@ -4,6 +4,7 @@
 
 <p align="center">
   <img src="scripts/sample.gif" alt="ainovel-cli demo" width="800">
+  <img src="scripts/novel.png" alt="ainovel-cli bg" width="800">
 </p>
 
 ## 特性

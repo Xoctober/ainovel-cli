@@ -1010,6 +1010,13 @@ func renderEventLine(ev host.Event, width, spinnerFrame int) string {
 		sum := lipgloss.NewStyle().Foreground(sumColor).Render(truncate(ev.Summary, maxSumW))
 		return tsStr + " " + indent + icon + " " + sum
 
+	case ev.Category == "USER":
+		// 用户在输入框发送的 Steer / Continue 文本回显；与 SYSTEM 的 ⚙ 拉开形态，用 ✎ 暗示"输入"。
+		// 颜色用 colorAccent2（青绿）与 SYSTEM 的金色拉开，避免误读为系统消息。
+		icon := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render("✎")
+		sum := lipgloss.NewStyle().Foreground(colorAccent2).Render(truncate(ev.Summary, maxSumW))
+		return tsStr + " " + indent + icon + " " + sum
+
 	case ev.Category == "CONTEXT" || ev.Category == "COMPACT":
 		icon := lipgloss.NewStyle().Foreground(colorContext).Render("⚙")
 		sumColor := colorContext

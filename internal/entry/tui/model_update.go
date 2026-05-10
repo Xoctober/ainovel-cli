@@ -287,6 +287,17 @@ func (m Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		m.cocreate = newCoCreateState(text)
 		return m, m.sendCoCreate()
 	case modeRunning:
+		// 立即在事件流回显用户输入；Steer/Continue 是异步 Cmd，不等结果。
+		// 标签 [继续]/[用户干预] 与 host.Continue/Steer 的内部处理路径对应：停机时是续写，运行中是干预。
+		// [用户干预] 与 host.Steer 注入 Coordinator 的 UserMsg 前缀完全一致，便于回看时对照 session log。
+		label := "[用户干预] "
+		if !m.snapshot.IsRunning {
+			label = "[继续] "
+		}
+		m.applyEvent(host.Event{
+			Time: time.Now(), Category: "USER", Summary: label + text, Level: "info",
+		})
+		m.refreshEventViewport()
 		if !m.snapshot.IsRunning {
 			return m, continueRuntime(m.runtime, text)
 		}
