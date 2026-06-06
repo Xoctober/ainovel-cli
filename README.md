@@ -395,7 +395,7 @@ output/novel/meta/simulation_profile.json
 
 内置一份去 AI 味基线（`assets/` 下，出厂默认）：机械黑名单 `rules/default.md`（套句 / 疲劳词，commit 时确定性检查）+ 语义判据 `references/anti-ai-tone.md`（注入 writer / editor 规避与举证）。
 
-想叠加自己的偏好**无需改源码**：在 `~/.ainovel/rules.md`（全局）或项目根 `./rules.md`（本书）里——front matter 加机械禁词，markdown 正文写语义偏好，就近覆盖、与内置基线叠加生效。完整字段见 [`rules.md.example`](rules.md.example)。
+想叠加自己的偏好**无需改源码**：在 `~/.ainovel/rules/` 目录（全局，放任意 `.md`，按文件名字典序合并）或项目根 `./rules.md`（本书）里——front matter 加机械禁词，markdown 正文写语义偏好，就近覆盖、与内置基线叠加生效。完整字段见 [`rules.md.example`](rules.md.example)。
 
 ## 输出结构
 

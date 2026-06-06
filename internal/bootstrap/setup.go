@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/voocel/ainovel-cli/internal/rules"
 	"github.com/voocel/ainovel-cli/internal/utils"
 )
 
@@ -140,11 +141,17 @@ func RunSetup() (Config, error) {
 	// 生成注释模板
 	saveExampleConfig()
 
+	// 全局偏好目录由启动流程（runWithConfig）统一创建，这里仅取路径用于提示
+	rulesDir := rules.DefaultHomeRulesDir()
+
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "%s 配置已保存到 %s\n",
 		lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("✓"), path)
 	fmt.Fprintf(os.Stderr, "  默认模型：%s\n", modelName)
 	fmt.Fprintln(os.Stderr, "  如需按角色配置不同模型，编辑配置文件即可。")
+	if rulesDir != "" {
+		fmt.Fprintf(os.Stderr, "  全局写作偏好可放 %s 下的 .md 文件（见其中 README.txt）\n", rulesDir)
+	}
 	fmt.Fprintln(os.Stderr)
 
 	return cfg, nil

@@ -21,7 +21,7 @@ type SourceKind int
 const (
 	// SourceDefault — 项目内置默认规则（assets/rules/default.md），优先级最低。
 	SourceDefault SourceKind = iota
-	// SourceGlobal — 用户全局偏好（~/.ainovel/rules.md），跨书复用。
+	// SourceGlobal — 用户全局偏好（~/.ainovel/rules/ 目录下所有 .md，按文件名字典序合并），跨书复用。
 	SourceGlobal
 	// SourceProject — 本书规则（./rules.md），优先级最高。
 	SourceProject

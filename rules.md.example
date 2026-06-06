@@ -66,7 +66,7 @@ cp rules.md.example rules.md
 加载优先级（高 → 低）三层：
 
 1. `./rules.md` — **本书规则**（绑定当前工作目录 cwd）
-2. `~/.ainovel/rules.md` — **全局偏好**（跨书复用）
+2. `~/.ainovel/rules/` 目录下任意 `.md` — **全局偏好**（跨书复用，按文件名字典序合并）
 3. `assets/rules/default.md` — **项目内置默认**（含去 AI 味机械基线；语义基线另在内置 `assets/references/anti-ai-tone.md`）
 
 多来源声明同一字段且值不一致时**就近优先**生效；`fatigue_words` 按词合并，同一词在多来源声明不同阈值时按就近优先。冲突写进内部诊断信息（不进 LLM 上下文，由 CLI 启动面板按需展示），不阻断加载。
@@ -80,4 +80,4 @@ cp rules.md.example rules.md
 - ✅ 推荐：每本书 cd 到独立目录启动（`cd works/xiyou && ainovel-cli` / `cd works/honglou && ainovel-cli`）— 每本书的 `./rules.md` 独立
 - ⚠️ 边缘：从同一 cwd 用 `-o output/xiyou` / `-o output/honglou` 切换两本书 — 这两本书会共享同一份 `./rules.md`
 
-如需"严格本书隔离"且不想换 cwd，把偏好放 `~/.ainovel/rules.md` 全局层，让所有书共享一套用户偏好。
+如需"严格本书隔离"且不想换 cwd，把偏好放 `~/.ainovel/rules/` 全局目录，让所有书共享一套用户偏好。

@@ -5,7 +5,7 @@
 # 当前仍由 writer.md / editor.md 承载，待 Phase 1.5（F1 手测验证
 # working_memory 约束力后）再决定是否搬入本文件。
 #
-# 用户可在项目根 ./rules.md 或 ~/.ainovel/rules.md 覆盖普通字段；
+# 用户可在项目根 ./rules.md 或 ~/.ainovel/rules/ 目录（其下任意 .md）覆盖普通字段；
 # fatigue_words 按词合并，同一词由更近来源覆盖阈值。
 # 详细字段语义参见项目根 rules.md.example。
 
