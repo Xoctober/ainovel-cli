@@ -122,9 +122,14 @@ func runCoCreate(rt *host.Host, state *cocreateState) tea.Cmd {
 	state.cancel = cancel
 	state.deltaCh = make(chan cocreateStreamItem, 64)
 	state.doneCh = make(chan cocreateDoneMsg, 1)
+	// 阶段共创带故事状态摘要、产出"后续方向 brief"；冷启动从零澄清需求。两者签名一致。
+	stream := rt.CoCreateStream
+	if state.stage {
+		stream = rt.StageCoCreateStream
+	}
 	start := func() tea.Msg {
 		go func() {
-			reply, err := rt.CoCreateStream(ctx, history, func(kind, text string) {
+			reply, err := stream(ctx, history, func(kind, text string) {
 				select {
 				case state.deltaCh <- cocreateStreamItem{kind: kind, text: text}:
 				default:
@@ -183,6 +188,23 @@ func continueRuntime(rt *host.Host, text string) tea.Cmd {
 	return func() tea.Msg {
 		err := rt.Continue(text)
 		return continueResultMsg{err: err}
+	}
+}
+
+// resumeFromCoCreate 把阶段共创产出的后续方向 brief 注入并恢复创作。
+// 复用 continueResultMsg：成功即接 listenDone 续跑，失败回显错误。
+func resumeFromCoCreate(rt *host.Host, draft string) tea.Cmd {
+	return func() tea.Msg {
+		err := rt.ResumeFromCoCreate(draft)
+		return continueResultMsg{err: err}
+	}
+}
+
+// cancelCoCreate 放弃阶段共创：清占用标记、保持暂停。事件经 events 通道回流，无需返回消息。
+func cancelCoCreate(rt *host.Host) tea.Cmd {
+	return func() tea.Msg {
+		rt.CancelCoCreate()
+		return nil
 	}
 }
 

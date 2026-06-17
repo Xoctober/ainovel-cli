@@ -447,7 +447,11 @@ func (m *Model) inputHints() string {
 		case m.cocreate.awaiting:
 			return dimStyle.Render("等待 AI 回复 · Esc 退出共创" + scrollHint + suffix)
 		case m.cocreate.canStart():
-			return dimStyle.Render("Enter 发送 · Ctrl+S 开始创作 · Esc 退出共创" + scrollHint + suffix)
+			startLabel := "Ctrl+S 开始创作"
+			if m.cocreate.stage {
+				startLabel = "Ctrl+S 应用并继续"
+			}
+			return dimStyle.Render("Enter 发送 · " + startLabel + " · Esc 退出共创" + scrollHint + suffix)
 		default:
 			return dimStyle.Render("Enter 发送 · Esc 退出共创" + scrollHint + suffix)
 		}
@@ -713,17 +717,27 @@ func (m Model) handleCoCreateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if state.awaiting {
 			return m, nil
 		}
-		if state.canStart() {
-			plan, err := state.buildPlan()
-			if err != nil {
-				m.err = err
-				return m, nil
-			}
-			state.awaiting = true
-			m.textarea.Blur()
-			return m, startRuntime(m.runtime, plan)
+		if !state.canStart() {
+			return m, nil
 		}
-		return m, nil
+		// 阶段共创：把"后续方向 brief"注入并恢复创作，回到运行台。
+		if state.stage {
+			draft := state.draftPrompt()
+			m.cocreate = nil
+			m.err = nil
+			m.resizeTextarea()
+			m.textarea.Placeholder = defaultSteerPlaceholder()
+			return m, tea.Batch(resumeFromCoCreate(m.runtime, draft), m.textarea.Focus())
+		}
+		// 冷启动共创：用整理好的创作指令开始创作。
+		plan, err := state.buildPlan()
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		state.awaiting = true
+		m.textarea.Blur()
+		return m, startRuntime(m.runtime, plan)
 	case tea.KeyEnter:
 		// Alt+Enter → 主动换行，让 textarea.Update 接管（KeyMap.InsertNewline 已绑此键）
 		if msg.Alt {
@@ -795,9 +809,16 @@ func (m Model) exitCoCreate() (tea.Model, tea.Cmd) {
 	if m.cocreate.cancel != nil {
 		m.cocreate.cancel()
 	}
+	stage := m.cocreate.stage
 	initial := m.cocreate.initialInput()
 	m.cocreate = nil
 	m.resizeTextarea()
+	// 阶段共创取消：清占用标记、保持暂停，回到运行台输入态（不回填合成开场）。
+	if stage {
+		m.textarea.SetValue("")
+		m.textarea.Placeholder = defaultSteerPlaceholder()
+		return m, tea.Batch(cancelCoCreate(m.runtime), fetchSnapshot(m.runtime), m.textarea.Focus())
+	}
 	m.textarea.SetValue(initial)
 	m.textarea.Placeholder = placeholderForNewMode(m.startupMode)
 	return m, m.textarea.Focus()

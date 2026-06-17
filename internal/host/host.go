@@ -54,9 +54,10 @@ type Host struct {
 	streamCh chan string
 	done     chan struct{}
 
-	mu        sync.Mutex
-	lifecycle lifecycle
-	closeOnce sync.Once
+	mu         sync.Mutex
+	lifecycle  lifecycle
+	cocreating bool // 阶段共创占用：paused 窗口内堵住 import/simulate/continue 的并发介入
+	closeOnce  sync.Once
 }
 
 type lifecycle string
@@ -187,6 +188,10 @@ func (h *Host) StartPrepared(promptText string) error {
 		h.mu.Unlock()
 		return fmt.Errorf("already running")
 	}
+	if h.cocreating {
+		h.mu.Unlock()
+		return fmt.Errorf("阶段共创进行中，请先结束共创")
+	}
 	h.mu.Unlock()
 
 	promptText = strings.TrimSpace(promptText)
@@ -229,6 +234,10 @@ func (h *Host) Resume() (string, error) {
 	if h.lifecycle == lifecycleRunning {
 		h.mu.Unlock()
 		return "", fmt.Errorf("already running")
+	}
+	if h.cocreating {
+		h.mu.Unlock()
+		return "", fmt.Errorf("阶段共创进行中，请先结束共创")
 	}
 	h.mu.Unlock()
 
@@ -281,6 +290,10 @@ func (h *Host) Continue(text string) error {
 		return fmt.Errorf("text is required")
 	}
 	h.mu.Lock()
+	if h.cocreating {
+		h.mu.Unlock()
+		return fmt.Errorf("阶段共创进行中，请先结束共创")
+	}
 	running := h.lifecycle == lifecycleRunning
 	h.mu.Unlock()
 
@@ -851,8 +864,84 @@ func (h *Host) ReplayQueue(afterSeq int64) ([]domain.RuntimeQueueItem, error) {
 
 // ── 共创 ──
 
+// CoCreateStream 冷启动共创：从零澄清需求，产出整本书的创作指令。
 func (h *Host) CoCreateStream(ctx context.Context, history []CoCreateMessage, onProgress func(kind, text string)) (CoCreateReply, error) {
-	return coCreateStream(ctx, h.models, h.store.Sessions, history, onProgress)
+	return coCreateStream(ctx, h.models, h.store.Sessions, coCreateSystemPrompt, history, onProgress)
+}
+
+// StageCoCreateStream 阶段共创：在已写内容的基础上规划后续方向。
+// 系统提示 = 阶段 prompt + 当前故事状态摘要，让助手知道"已经写了什么"。
+func (h *Host) StageCoCreateStream(ctx context.Context, history []CoCreateMessage, onProgress func(kind, text string)) (CoCreateReply, error) {
+	return coCreateStream(ctx, h.models, h.store.Sessions, stageSystemPrompt(h.store), history, onProgress)
+}
+
+// stagePlanPrefix 把共创产出的"后续方向 brief"包装成一条阶段规划干预，交 Coordinator 裁定。
+// 只贴 [阶段规划] 事实标记 + 中性陈述，不写死"怎么落地"——具体路由（compass / architect /
+// save_directive）交给 coordinator.md 的「阶段规划」判据，避免与 prompt 形成第二真相源、
+// 也不堵死风格类要求走 directive（守"分类裁定归 LLM"）。Continue 再叠加 [用户干预] 前缀。
+const stagePlanPrefix = "[阶段规划] 我暂停创作，和共创助手一起梳理了下面的后续方向，请按你的干预分类裁定如何落地，然后继续创作。后续方向如下：\n\n"
+
+// PauseForCoCreate 进入阶段共创：置共创占用标记，运行中则一并暂停 coordinator。
+// 返回 false 表示无法进入（全书已完成或已在共创中），调用方忽略即可。
+// 占用标记在共创窗口内堵住 import/simulate/start/resume/continue 的并发介入——
+// 运行中暂停后 lifecycle=paused，现有 ==running 互斥失效，靠该标记补缺；
+// 已停止（idle/paused）也允许进入，规划完经 Continue 续跑。
+func (h *Host) PauseForCoCreate() bool {
+	h.mu.Lock()
+	if h.cocreating || h.lifecycle == lifecycleCompleted {
+		h.mu.Unlock()
+		return false
+	}
+	h.cocreating = true
+	running := h.lifecycle == lifecycleRunning
+	h.mu.Unlock()
+
+	// 运行中复用 abortWithEvent 停机（running→paused + setAborting + Abort + 事件），与手动
+	// 暂停同序、不另抄一遍；已停止（idle/paused）只置标记，规划完经 Continue 续跑。
+	if running {
+		h.abortWithEvent("进入阶段共创，创作已暂停", "info")
+	} else {
+		h.emitEvent(Event{Time: time.Now(), Category: "SYSTEM", Summary: "进入阶段共创", Level: "info"})
+	}
+	return true
+}
+
+// ResumeFromCoCreate 结束阶段共创：把共创产出的后续方向作为干预注入并恢复创作。
+// 清占用标记后复用 Continue 的停机注入路径（受预算前置约束）。
+// 注：draft 为空时提前返回、不清标记是有意的（共创尚未结束）；TUI 侧 canStart() 守卫
+// 与此处用同一"非空"判据，保证该路径不可达，cocreating 不会因此泄漏。
+func (h *Host) ResumeFromCoCreate(draft string) error {
+	draft = strings.TrimSpace(draft)
+	if draft == "" {
+		return fmt.Errorf("draft is required")
+	}
+	h.mu.Lock()
+	if !h.cocreating {
+		h.mu.Unlock()
+		return fmt.Errorf("not in co-create")
+	}
+	h.cocreating = false
+	h.mu.Unlock()
+
+	// PauseForCoCreate 的 Abort 是异步的：恢复前等旧 run 收敛，回到与手动暂停后 Continue
+	// 一致的"真停机"前提，避免把续跑指令 steer 进正在退出的旧 run。非运行态进共创（未
+	// Abort）时 coordinator 本就 idle，WaitForIdle 立即返回。
+	h.coordinator.WaitForIdle()
+
+	h.emitEvent(Event{Time: time.Now(), Category: "SYSTEM", Summary: "阶段共创完成，已注入后续方向并恢复创作", Level: "info"})
+	return h.Continue(stagePlanPrefix + draft)
+}
+
+// CancelCoCreate 放弃阶段共创：清占用标记，保持暂停态（用户可在输入框继续或重启 Resume）。
+func (h *Host) CancelCoCreate() {
+	h.mu.Lock()
+	if !h.cocreating {
+		h.mu.Unlock()
+		return
+	}
+	h.cocreating = false
+	h.mu.Unlock()
+	h.emitEvent(Event{Time: time.Now(), Category: "SYSTEM", Summary: "已退出阶段共创，创作保持暂停（可在输入框继续）", Level: "info"})
 }
 
 // ── 工具 ──
@@ -875,12 +964,9 @@ func truncate(s string, maxRunes int) string {
 // 与 Coordinator 互斥；导入完成后调用方可立即 Resume() 续写。
 // 返回的事件通道由 imp.Run 关闭，调用方负责消费（满则丢弃以防阻塞分析协程）。
 func (h *Host) ImportFrom(ctx context.Context, opts imp.Options) (<-chan imp.Event, error) {
-	h.mu.Lock()
-	if h.lifecycle == lifecycleRunning {
-		h.mu.Unlock()
-		return nil, fmt.Errorf("coordinator 运行中，请先暂停后再导入")
+	if err := h.guardExclusive("导入"); err != nil {
+		return nil, err
 	}
-	h.mu.Unlock()
 
 	rulesOpts := rules.DefaultOptions(h.bundle.RulesFS)
 	deps := imp.Deps{
@@ -897,12 +983,9 @@ func (h *Host) ImportFrom(ctx context.Context, opts imp.Options) (<-chan imp.Eve
 
 // Simulate 读取 simulate 目录并生成或增量更新仿写画像。
 func (h *Host) Simulate(ctx context.Context) (<-chan sim.Event, error) {
-	h.mu.Lock()
-	if h.lifecycle == lifecycleRunning {
-		h.mu.Unlock()
-		return nil, fmt.Errorf("coordinator 运行中，请先暂停后再生成仿写画像")
+	if err := h.guardExclusive("生成仿写画像"); err != nil {
+		return nil, err
 	}
-	h.mu.Unlock()
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -921,13 +1004,24 @@ func (h *Host) Simulate(ctx context.Context) (<-chan sim.Event, error) {
 
 // ImportSimulationProfile 导入此前生成的仿写画像。
 func (h *Host) ImportSimulationProfile(ctx context.Context, path string) (<-chan sim.Event, error) {
-	h.mu.Lock()
-	if h.lifecycle == lifecycleRunning {
-		h.mu.Unlock()
-		return nil, fmt.Errorf("coordinator 运行中，请先暂停后再导入仿写画像")
+	if err := h.guardExclusive("导入仿写画像"); err != nil {
+		return nil, err
 	}
-	h.mu.Unlock()
 	return sim.RunImport(ctx, h.store, path)
+}
+
+// guardExclusive 检查独占占用：coordinator 运行中或阶段共创窗口内时拒绝会改写状态的入口
+// （import/simulate）。补上 paused 期间只查 ==running 的并发缺口。
+func (h *Host) guardExclusive(action string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	switch {
+	case h.lifecycle == lifecycleRunning:
+		return fmt.Errorf("coordinator 运行中，请先暂停后再%s", action)
+	case h.cocreating:
+		return fmt.Errorf("阶段共创进行中，请先结束共创后再%s", action)
+	}
+	return nil
 }
 
 // Export 导出已完成章节为外部文件（当前仅支持 TXT）。

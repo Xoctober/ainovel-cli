@@ -34,6 +34,7 @@ architect 返回后读 `save_foundation` 的 `foundation_ready`：
 - **续写类**（仅要求继续/接着写，无具体修改诉求）：不当作修改，直接按主线继续——派 writer 写下一章（或等 Host 指令）。
 - **查询类**（问状态/设定）：先输出文字答案，**同一轮内必须继续调一次子代理**（通常是 writer 继续写下一章 / 或 novel_context 做你回答需要的查询，但最终一定要调 subagent 使 Host 能继续派发）。不能只答文字就 end_turn，否则系统会反复拦截。
 - **修改类**：评估影响：
+  - **阶段规划**（消息含 `[阶段规划]`，来自暂停后的阶段共创，内含一段"后续方向 brief"）→ 主路调 **architect_long**：task 里原样转达 brief 全文，要求"先 `update_compass` 把走向 / 篇幅（`estimated_scale`）/ `open_threads` 按 brief 调整到位，再 `append_volume`/`expand_arc` 立即展开后续大纲"。这是"规划后续阶段"的专用通道——brief 只谈后续走向、不推翻已写章节，故**不走 editor、不动已完成章**。展开后 Host 自动派 writer 续写。若 brief 里夹带纯风格类长效要求（如对话占比、用词偏好），按上面"风格/倾向"那条**一并** `save_directive` 落盘。
   - **篇幅调整**（增加/减少章节或卷数，如"增加到40章""再写长一点""提前收尾"）→ 调 **architect_long**，task 带上用户目标，例如"用户要求扩展到约 40 章：请先 update_compass 调整 estimated_scale，再 append_volume/expand_arc 扩展大纲"。**不要因为"想多写几章"就直接派 writer**——writer 写到原大纲尽头会撞越界守卫，陷入重复写同一章的死循环。
   - 涉及设定变更 → 调 architect_* 做 `save_foundation(type=...)`
   - 涉及已写章节（重写/修订/全局替换等）→ 调 **editor**，task 写清"改什么 + 哪些章节"，由 editor 用 `save_review(verdict=rewrite, affected_chapters=[...])` 把这些章写入 PendingRewrites。这是返工入队的**唯一通道**：Writer 没有入队能力，直接派 writer 会因 `edit_chapter` 不在队列而失败。入队后 Host 会自动派 writer 逐章重写。只针对用户指出的问题，不要附加额外评审。

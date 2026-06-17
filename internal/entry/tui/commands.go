@@ -121,6 +121,34 @@ func commandRegistryInstance() commandRegistry {
 			},
 		},
 		{
+			Name:        "cocreate",
+			Aliases:     []string{"plan"},
+			Group:       "writing",
+			Usage:       "/cocreate",
+			Description: "暂停创作，共创规划后续阶段走向",
+			AutoExecute: true,
+			Run: func(m Model, _ []string) (tea.Model, tea.Cmd) {
+				if m.mode != modeRunning {
+					m.applyEvent(host.Event{
+						Time: time.Now(), Category: "ERROR", Summary: "阶段共创仅在创作中可用", Level: "error",
+					})
+					m.refreshEventViewport()
+					return m, nil
+				}
+				if !m.runtime.PauseForCoCreate() {
+					m.applyEvent(host.Event{
+						Time: time.Now(), Category: "ERROR", Summary: "无法进入阶段共创：全书已完成或已在共创中", Level: "error",
+					})
+					m.refreshEventViewport()
+					return m, nil
+				}
+				m.cocreate = newStageCoCreateState()
+				m.resizeTextarea()
+				m.textarea.Blur()
+				return m, m.sendCoCreate()
+			},
+		},
+		{
 			Name:        "simulate",
 			Group:       "writing",
 			Usage:       "/simulate",
