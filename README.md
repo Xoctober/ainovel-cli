@@ -194,15 +194,17 @@ ToolResultMicrocompact → LightTrim → StoreSummaryCompact → FullSummary
 ## 快速开始
 
 ```bash
-# 安装
-go install github.com/voocel/ainovel-cli/cmd/ainovel-cli@latest
+# 一键安装（macOS / Linux，无需 Go）
+curl -fsSL https://raw.githubusercontent.com/voocel/ainovel-cli/main/scripts/install.sh | sh
 
-# 本地开发运行
-go run ./cmd/ainovel-cli
+# 或通过 Go 安装
+go install github.com/voocel/ainovel-cli/cmd/ainovel-cli@latest
 
 # 首次运行，自动进入引导流程（选择 Provider → 输入 API Key → Base URL → 模型名）
 ainovel-cli
 ```
+
+> Windows 或手动安装：前往 [Releases](https://github.com/voocel/ainovel-cli/releases/latest) 下载对应平台的包。
 
 进入 TUI 后，启动阶段支持两种前置交互：
 
@@ -294,16 +296,15 @@ output/novel/meta/simulation_profile.json
 ```
 /import ~/我的小说.txt              # 从头导入并反推 foundation
 /import ~/我的小说.txt from=50      # 从第 50 章接着导入（跳过反推）
-/import ~/我的小说.txt regex=^第.+話$  # 自定义章节标题正则
 ```
 
-**章节切分规则**：默认正则识别这些标题格式（行首，可带 `#`/`##` Markdown 前缀）：
+**章节切分规则**：自动识别这些标题格式（行首，可带 `#`/`##` Markdown 前缀、`【】`/`〖〗` 包裹、全角空格，兼容 GBK/BOM 编码）：
 
-- 中文编号：`第一章` `第3回` `第十话` `第二卷`、独立 `卷一`，可带副标题（`第三章：决战`）
-- 中文特殊单元：`序章` `楔子` `引子` `前言` `尾声` `终章` `后记` `番外`
+- 中文编号：`第一章` `第3回` `第十话` `第二卷` `第五节` `第二幕`、独立 `卷一`，数字支持大写（`第壹章`），可带副标题（`第三章：决战`）
+- 中文特殊单元：`序章` `楔子` `引子` `前言` `尾声` `终章` `后记` `番外` `外传`
 - 英文：`Chapter 1` `Chapter II`、`Prologue` `Epilogue`，可带副标题（`Chapter 1: The Beginning`）
 
-若提示**"未识别到任何章节"**，说明你的文件用了其它标题格式（如 `001`、`（一）`、剧本式），用 `regex=` 参数传入自定义正则即可（至少含一个捕获组用于提取标题）。
+若提示**"未识别到任何章节"**，请确认文件确为分章小说文本（章节标题独占一行、位于行首）。
 
 > 导入是确定性回放，不经过 Coordinator；原文会逐字落盘为已完成章节，因此适合"续写同一本书"。如果只想借鉴设定做全新创作，请用普通方式起一本新书、在需求里描述想要的风格设定。
 
