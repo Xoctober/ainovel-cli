@@ -24,6 +24,25 @@ func TestSimulationCommandsAreRegisteredAndNeedIdle(t *testing.T) {
 	}
 }
 
+func TestConfigSwitchCommandIsRegistered(t *testing.T) {
+	registry := commandRegistryInstance()
+	spec, ok := registry.Find("chageConfig")
+	if !ok {
+		t.Fatal("expected /chageConfig command to be registered")
+	}
+	if !spec.AutoExecute {
+		t.Fatal("/chageConfig should auto execute")
+	}
+	if _, ok := registry.Find("changeConfig"); !ok {
+		t.Fatal("expected /changeConfig alias to be registered")
+	}
+
+	items := builtinCommandItems()
+	if !hasPaletteItem(items, "chageconfig") {
+		t.Fatalf("expected chageconfig in palette: %+v", items)
+	}
+}
+
 func TestSimulationCommandsAreBlockedWhileRunning(t *testing.T) {
 	m := Model{snapshot: host.UISnapshot{IsRunning: true}, eventIndex: map[string]int{}}
 	next, _ := m.handleSlashCommand(slashCommand{name: "simulate"})

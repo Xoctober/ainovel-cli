@@ -241,8 +241,9 @@ ainovel-cli
 #### 配置文件查找顺序（后者覆盖前者）
 
 1. `~/.ainovel/config.json` — 全局配置
-2. `./ainovel.json` — 项目级覆盖（可选）
-3. `--config path/to/config.json` — 命令行指定
+2. `./configs/*.json` — 项目级模型连接配置（可选）
+3. `./ainovel.json` — 项目级覆盖（可选）
+4. `--config path/to/config.json` — 命令行指定
 
 覆盖规则说明：
 
@@ -254,6 +255,58 @@ ainovel-cli
 > ⚠️ `provider`（以及 `roles.*.provider`）的值是 `providers` 里的 **key 名**——一根指针，不是协议名。项目级若把 `provider` 切到一个全局 `providers` 里不存在的账号，必须在项目级同时补上该账号的凭证（`api_key` / `base_url`），否则启动会报“未配置凭证”。
 
 `providers.<name>.models` 为可选字段，用于声明该 provider 下允许在 TUI `/model` 面板中切换的模型列表；如果未配置，系统会回退为当前配置文件里已经出现过的该 provider 模型。
+
+也可以把模型连接配置拆到当前项目的 `configs` 目录，每个 JSON 文件表示一个可切换配置。本地 TUI 启动时会先让你从 `configs` 中选择本次使用的配置，再用其中的地址、兼容类型、密钥和模型初始化运行时；进入 TUI 后也可以输入 `/chageConfig`，用 ↑/↓ 选择配置并按 Enter 应用。`/changeConfig` 也可作为别名使用。
+
+`configs/example.json` 是配置项说明文件，不会被加载为真实模型配置。真实配置可以复制一份改名，例如 `configs/wx-api.json`。
+
+配置项用法：
+
+- `name`：配置显示名称，仅用于识别。
+- `provider`：Provider 唯一标识，会作为内部引用 key；建议小写英文或短横线。
+- `type`：兼容协议类型，例如 `openai` / `anthropic` / `gemini`；OpenAI 兼容接口填写 `openai`。
+- `baseUrl`：API 基础地址，通常需要包含 `/v1`。
+- `apiKey`：访问密钥；真实密钥不要提交到版本库。
+- `model`：默认模型名称。
+- `models`：可选模型列表，供启动配置和运行中模型切换使用。
+- `default`：多个配置并存时，`true` 表示默认选中；真实配置中填写布尔值。
+- `context_window`：可选，上下文窗口 token 数；真实配置中填写数字。
+- `extra_body`：可选，透传给 OpenAI 兼容请求体的额外参数。
+
+```jsonc
+{
+  "name": "WX API Deepseek",
+  "provider": "wx-api",
+  "type": "openai",
+  "baseUrl": "https://ai.example.com/v1",
+  "apiKey": "sk-xxx",
+  "model": "Deepseek-V4-Max",
+  "models": ["Deepseek-V4-Max"],
+  "default": true
+}
+```
+
+也支持下划线字段名：
+
+```jsonc
+{
+  "name": "My OpenAI Compatible API",
+  "provider": "my-api",
+  "type": "openai",
+  "base_url": "https://api.example.com/v1",
+  "api_key": "sk-xxx",
+  "model": "my-model",
+  "models": ["my-model", "my-model-large"],
+  "default": false,
+  "context_window": 200000,
+  "extra_body": {
+    "temperature": 0.8,
+    "top_p": 0.95
+  }
+}
+```
+
+`baseUrl/apiKey` 和 `base_url/api_key` 两种字段名都支持。`configs/*.json` 通常包含密钥，默认应作为本地文件处理，不建议提交到版本库。
 
 ## 诊断报告
 

@@ -100,6 +100,96 @@ func TestLoadConfig_ValidMergeWorks(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_ProjectProfilesUseCamelFields(t *testing.T) {
+	writeGlobal(t, "")
+	proj := t.TempDir()
+	t.Chdir(proj)
+	if err := os.MkdirAll("configs", 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	content := `{
+  "name": "WX API Deepseek",
+  "provider": "wx-api",
+  "type": "openai",
+  "baseUrl": "https://ai.wx-api.online/v1",
+  "apiKey": "sk-test-profile",
+  "model": "Deepseek-V4-Max",
+  "models": ["Deepseek-V4-Max"],
+  "default": true
+}`
+	if err := os.WriteFile(filepath.Join("configs", "wx-api.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("configs 配置应可加载: %v", err)
+	}
+	if cfg.Provider != "wx-api" || cfg.ModelName != "Deepseek-V4-Max" {
+		t.Fatalf("默认配置应来自 configs，provider=%q model=%q", cfg.Provider, cfg.ModelName)
+	}
+	pc := cfg.Providers["wx-api"]
+	if pc.Type != "openai" {
+		t.Fatalf("type 应解析为 openai，得到 %q", pc.Type)
+	}
+	if pc.BaseURL != "https://ai.wx-api.online/v1" {
+		t.Fatalf("baseUrl 未解析，得到 %q", pc.BaseURL)
+	}
+	if pc.APIKey != "sk-test-profile" {
+		t.Fatal("apiKey 未解析")
+	}
+	if len(cfg.Profiles) != 1 || cfg.Profiles[0].DisplayName() != "WX API Deepseek" {
+		t.Fatalf("应保留配置档案供运行中切换，得到 %+v", cfg.Profiles)
+	}
+}
+
+func TestLoadConfig_ProjectProfileBadJSONFails(t *testing.T) {
+	writeGlobal(t, validGlobal)
+	proj := t.TempDir()
+	t.Chdir(proj)
+	if err := os.MkdirAll("configs", 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join("configs", "bad.json"), []byte(`{ "provider": "x", }`), 0o644); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+
+	if _, err := LoadConfig(""); err == nil {
+		t.Fatal("坏的 configs/*.json 应当报错")
+	}
+}
+
+func TestLoadConfigProfiles_SkipsExampleJSON(t *testing.T) {
+	proj := t.TempDir()
+	dir := filepath.Join(proj, "configs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "example.json"), []byte(`{
+  "provider": "解释文字",
+  "default": "真实配置里这里应是 bool，示例文件不应被解析"
+}`), 0o644); err != nil {
+		t.Fatalf("write example: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "real.json"), []byte(`{
+  "provider": "real",
+  "type": "openai",
+  "apiKey": "sk-test",
+  "baseUrl": "https://api.example.com/v1",
+  "model": "real-model"
+}`), 0o644); err != nil {
+		t.Fatalf("write real: %v", err)
+	}
+
+	profiles, err := LoadConfigProfiles(dir)
+	if err != nil {
+		t.Fatalf("example.json 应被跳过，得到错误: %v", err)
+	}
+	if len(profiles) != 1 || profiles[0].ProviderName() != "real" {
+		t.Fatalf("应只加载真实配置，得到 %+v", profiles)
+	}
+}
+
 // 根因 2（issue #37 核心复现）：项目级覆盖 provider 但没声明对应 providers 凭证，
 // ValidateBase 必须报 config 错误（而非放行后在更深处崩溃）。
 func TestValidateBase_ProviderOverrideWithoutCredentials(t *testing.T) {

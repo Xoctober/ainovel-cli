@@ -106,7 +106,9 @@ var knownRoles = map[string]bool{
 // Config 小说应用配置。
 type Config struct {
 	// 运行时字段（不序列化到 JSON）
-	OutputDir string `json:"-"` // 输出根目录
+	OutputDir         string          `json:"-"` // 输出根目录
+	Profiles          []ConfigProfile `json:"-"` // 项目 configs/*.json 中加载的模型配置档案
+	ActiveProfilePath string          `json:"-"` // 当前生效的 configs 配置文件路径
 
 	// 默认 LLM 配置
 	Provider  string `json:"provider"` // 默认 provider（Providers map 中的 key）

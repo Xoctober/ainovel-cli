@@ -84,6 +84,18 @@ func runWithConfig(cfg bootstrap.Config, opts cliOptions, args []string) {
 		die("error: 不再支持命令行直接传入小说需求，请启动后在 TUI 输入框中输入")
 	}
 
+	if !opts.Headless && (opts.Prompt != "" || opts.PromptFile != "") {
+		die("error: --prompt/--prompt-file 仅能在 --headless 模式下使用")
+	}
+
+	if !opts.Headless {
+		selected, err := bootstrap.SelectStartupConfigProfile(cfg)
+		if err != nil {
+			die("config: %v", err)
+		}
+		cfg = selected
+	}
+
 	bundle := assets.Load(cfg.Style)
 	if opts.Headless {
 		prompt, err := loadPrompt(opts)
@@ -94,9 +106,6 @@ func runWithConfig(cfg bootstrap.Config, opts cliOptions, args []string) {
 			die("error: %v", err)
 		}
 		return
-	}
-	if opts.Prompt != "" || opts.PromptFile != "" {
-		die("error: --prompt/--prompt-file 仅能在 --headless 模式下使用")
 	}
 	if err := tui.Run(cfg, bundle); err != nil {
 		die("error: %v", err)

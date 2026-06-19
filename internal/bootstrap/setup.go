@@ -33,6 +33,13 @@ func NeedsSetup(flagPath string) bool {
 	if _, err := os.Stat("ainovel.json"); err == nil {
 		return false
 	}
+	if entries, err := os.ReadDir(projectProfilesDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && !isConfigProfileExampleFile(entry.Name()) && strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+				return false
+			}
+		}
+	}
 	return true
 }
 
@@ -164,6 +171,45 @@ func RunSetup() (Config, error) {
 	return cfg, nil
 }
 
+// SelectStartupConfigProfile 在本地交互式启动时让用户先选择 ./configs 下的配置档案。
+func SelectStartupConfigProfile(cfg Config) (Config, error) {
+	if len(cfg.Profiles) == 0 {
+		return cfg, nil
+	}
+
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).
+		Render("请选择本次启动使用的大模型配置"))
+	fmt.Fprintln(os.Stderr, setupDimStyle.Render("  来源：./configs/*.json"))
+	fmt.Fprintln(os.Stderr)
+
+	profile, err := runConfigProfileSelect(cfg.Profiles, cfg.Provider)
+	if err != nil {
+		return cfg, err
+	}
+	next, selected, err := ApplyConfigProfile(cfg, profile.Path)
+	if err != nil {
+		return cfg, err
+	}
+
+	pc := selected.providerConfig()
+	printStepDone("配置", selected.DisplayName())
+	printStepDone("Provider", selected.ProviderName())
+	if pc.Type != "" {
+		printStepDone("兼容模式", pc.Type)
+	}
+	if pc.BaseURL != "" {
+		printStepDone("Base URL", pc.BaseURL)
+	}
+	if pc.APIKey != "" {
+		printStepDone("API Key", maskKey(pc.APIKey))
+	}
+	printStepDone("Model", selected.PrimaryModel())
+	fmt.Fprintln(os.Stderr)
+
+	return next, nil
+}
+
 func saveExampleConfig() {
 	dir, err := configDir()
 	if err != nil {
@@ -278,6 +324,80 @@ type setupSelectModel struct {
 	items     []setupProvider
 	cursor    int
 	cancelled bool
+}
+
+type configProfileSelectModel struct {
+	title     string
+	items     []ConfigProfile
+	cursor    int
+	cancelled bool
+}
+
+func runConfigProfileSelect(items []ConfigProfile, currentProvider string) (ConfigProfile, error) {
+	m := configProfileSelectModel{
+		title: "configs 配置",
+		items: append([]ConfigProfile(nil), items...),
+	}
+	for i, item := range m.items {
+		if item.ProviderName() == currentProvider {
+			m.cursor = i
+			break
+		}
+	}
+	p := tea.NewProgram(m, tea.WithOutput(os.Stderr))
+	final, err := p.Run()
+	if err != nil {
+		return ConfigProfile{}, err
+	}
+	result := final.(configProfileSelectModel)
+	if result.cancelled {
+		return ConfigProfile{}, fmt.Errorf("config selection cancelled")
+	}
+	return result.items[result.cursor], nil
+}
+
+func (m configProfileSelectModel) Init() tea.Cmd { return nil }
+
+func (m configProfileSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := msg.(tea.KeyMsg); ok {
+		switch msg.String() {
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.items)-1 {
+				m.cursor++
+			}
+		case "enter":
+			return m, tea.Quit
+		case "q", "esc", "ctrl+c":
+			m.cancelled = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m configProfileSelectModel) View() string {
+	var b strings.Builder
+	b.WriteString(setupHeaderStyle.Render(m.title))
+	b.WriteString("\n\n")
+	for i, item := range m.items {
+		cursor := "  "
+		name := filepath.Base(item.Path)
+		if name == "." || name == "" {
+			name = item.DisplayName()
+		}
+		line := name
+		if i == m.cursor {
+			cursor = setupCursorStyle.Render("❯ ")
+			line = setupCursorStyle.Render(name)
+		}
+		b.WriteString(cursor + line + "\n")
+	}
+	b.WriteString(setupDimStyle.Render("\n  ↑↓ 选择配置  Enter 确认  Esc 取消"))
+	return b.String()
 }
 
 func (m setupSelectModel) Init() tea.Cmd { return nil }

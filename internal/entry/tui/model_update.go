@@ -65,6 +65,8 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m.handleBlockingModalKey(msg, m.handleHelpKey)
 	case m.modelSwitch != nil:
 		return m.handleBlockingModalKey(msg, m.handleModelSwitchKey)
+	case m.configSwitch != nil:
+		return m.handleBlockingModalKey(msg, m.handleConfigSwitchKey)
 	case m.report != nil:
 		return m.handleBlockingModalKey(msg, m.handleReportKey)
 	case m.importer != nil:
@@ -367,7 +369,7 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
-	if m.modelSwitch != nil || m.askState != nil {
+	if m.modelSwitch != nil || m.configSwitch != nil || m.askState != nil {
 		return m, nil
 	}
 	if pane, ok := m.paneAtMouse(msg.X, msg.Y); ok {

@@ -87,6 +87,19 @@ func commandRegistryInstance() commandRegistry {
 			},
 		},
 		{
+			Name:        "chageconfig",
+			Aliases:     []string{"changeconfig"},
+			Group:       "system",
+			Usage:       "/chageConfig",
+			Description: "切换 configs 目录中的大模型配置",
+			AutoExecute: true,
+			Run: func(m Model, _ []string) (tea.Model, tea.Cmd) {
+				m.configSwitch = newConfigSwitchState(m.runtime)
+				m.textarea.Blur()
+				return m, nil
+			},
+		},
+		{
 			Name:        "diag",
 			Group:       "analysis",
 			Usage:       "/diag",

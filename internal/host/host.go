@@ -766,6 +766,14 @@ func deriveStatusLabel(s UISnapshot) string {
 
 // ── 模型管理 ──
 
+type ConfigProfileOption struct {
+	Name     string
+	Provider string
+	Model    string
+	Path     string
+	Active   bool
+}
+
 func (h *Host) ConfiguredProviders() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -785,6 +793,35 @@ func (h *Host) ConfiguredModels(provider string) []string {
 
 func (h *Host) CurrentModelSelection(role string) (string, string, bool) {
 	return h.models.CurrentSelection(role)
+}
+
+func (h *Host) ConfigProfiles() []ConfigProfileOption {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]ConfigProfileOption, 0, len(h.cfg.Profiles))
+	for _, profile := range h.cfg.Profiles {
+		out = append(out, ConfigProfileOption{
+			Name:     profile.DisplayName(),
+			Provider: profile.ProviderName(),
+			Model:    profile.PrimaryModel(),
+			Path:     profile.Path,
+			Active:   profile.Path == h.cfg.ActiveProfilePath,
+		})
+	}
+	return out
+}
+
+func (h *Host) SwitchConfigProfile(path string) error {
+	h.mu.Lock()
+	nextCfg, profile, err := bootstrap.ApplyConfigProfile(h.cfg, path)
+	if err != nil {
+		h.mu.Unlock()
+		return err
+	}
+	h.cfg = nextCfg
+	h.mu.Unlock()
+
+	return h.SwitchModel("default", profile.ProviderName(), profile.PrimaryModel())
 }
 
 func (h *Host) SwitchModel(role, provider, model string) error {

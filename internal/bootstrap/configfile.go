@@ -7,10 +7,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
 const configDirName = ".ainovel"
+const projectProfilesDir = "configs"
 
 // DefaultConfigPath 返回全局配置文件路径 ~/.ainovel/config.json。
 func DefaultConfigPath() string {
@@ -46,8 +49,9 @@ func configDir() (string, error) {
 
 // LoadConfig 按优先级加载并合并配置：
 //  1. ~/.ainovel/config.json（全局）
-//  2. ./ainovel.json（项目级覆盖）
-//  3. flagPath 指定的路径（最高优先级）
+//  2. ./configs/*.json（项目级模型配置档案）
+//  3. ./ainovel.json（项目级覆盖）
+//  4. flagPath 指定的路径（最高优先级）
 func LoadConfig(flagPath string) (Config, error) {
 	var cfg Config
 
@@ -64,7 +68,16 @@ func LoadConfig(flagPath string) (Config, error) {
 		}
 	}
 
-	// 2. 项目级覆盖。坏文件 fail loud：用户在当前目录主动放的配置，静默吞掉会让
+	// 2. 项目级模型配置档案。坏文件 fail loud：这是当前项目主动声明的模型入口。
+	profiles, err := LoadConfigProfiles(projectProfilesDir)
+	if err != nil {
+		return cfg, err
+	}
+	if len(profiles) > 0 {
+		cfg = mergeConfigProfiles(cfg, profiles)
+	}
+
+	// 3. 项目级覆盖。坏文件 fail loud：用户在当前目录主动放的配置，静默吞掉会让
 	//    "配了不生效"无从排查（issue #37）。
 	project, found, err := loadOptionalJSON("ainovel.json")
 	if err != nil {
@@ -74,7 +87,7 @@ func LoadConfig(flagPath string) (Config, error) {
 		cfg = mergeConfig(cfg, project)
 	}
 
-	// 3. CLI flag 覆盖
+	// 4. CLI flag 覆盖
 	if flagPath != "" {
 		override, err := loadJSONFile(flagPath)
 		if err != nil {
@@ -156,6 +169,9 @@ func mergeConfig(base, overlay Config) Config {
 			if len(v.Models) > 0 {
 				existing.Models = append([]string(nil), v.Models...)
 			}
+			if len(v.ExtraBody) > 0 {
+				existing.ExtraBody = cloneAnyMap(v.ExtraBody)
+			}
 			base.Providers[k] = existing
 		}
 	}
@@ -189,6 +205,263 @@ func mergeConfig(base, overlay Config) Config {
 	}
 
 	return base
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// ConfigProfile 是 ./configs/*.json 中的单个模型连接配置。
+// 它保留更直观的单档案写法，同时会转换成 Config.Providers 供现有运行时复用。
+type ConfigProfile struct {
+	Name           string         `json:"name,omitempty"`
+	Provider       string         `json:"provider,omitempty"`
+	Type           string         `json:"type,omitempty"`
+	Compatibility  string         `json:"compatibility,omitempty"`
+	CompatibleMode string         `json:"compatible_mode,omitempty"`
+	APIKey         string         `json:"api_key,omitempty"`
+	APIKeyCamel    string         `json:"apiKey,omitempty"`
+	BaseURL        string         `json:"base_url,omitempty"`
+	BaseURLCamel   string         `json:"baseUrl,omitempty"`
+	Model          string         `json:"model,omitempty"`
+	Models         []string       `json:"models,omitempty"`
+	ContextWindow  int            `json:"context_window,omitempty"`
+	Default        bool           `json:"default,omitempty"`
+	ExtraBody      map[string]any `json:"extra_body,omitempty"`
+	Path           string         `json:"-"`
+}
+
+func (p ConfigProfile) DisplayName() string {
+	if strings.TrimSpace(p.Name) != "" {
+		return strings.TrimSpace(p.Name)
+	}
+	return p.ProviderName()
+}
+
+func (p ConfigProfile) ProviderName() string {
+	if strings.TrimSpace(p.Provider) != "" {
+		return strings.TrimSpace(p.Provider)
+	}
+	if strings.TrimSpace(p.Name) != "" {
+		return slugConfigName(p.Name)
+	}
+	base := strings.TrimSuffix(filepath.Base(p.Path), filepath.Ext(p.Path))
+	if base != "" {
+		return slugConfigName(base)
+	}
+	return ""
+}
+
+func (p ConfigProfile) ProviderType() string {
+	for _, candidate := range []string{p.Type, p.CompatibleMode, p.Compatibility} {
+		if strings.TrimSpace(candidate) != "" {
+			return strings.ToLower(strings.TrimSpace(candidate))
+		}
+	}
+	return ""
+}
+
+func (p ConfigProfile) Key() string {
+	if p.APIKey != "" {
+		return p.APIKey
+	}
+	return p.APIKeyCamel
+}
+
+func (p ConfigProfile) URL() string {
+	if p.BaseURL != "" {
+		return p.BaseURL
+	}
+	return p.BaseURLCamel
+}
+
+func (p ConfigProfile) PrimaryModel() string {
+	if strings.TrimSpace(p.Model) != "" {
+		return strings.TrimSpace(p.Model)
+	}
+	if len(p.Models) > 0 {
+		return strings.TrimSpace(p.Models[0])
+	}
+	return ""
+}
+
+func (p ConfigProfile) providerConfig() ProviderConfig {
+	return ProviderConfig{
+		Type:      p.ProviderType(),
+		APIKey:    p.Key(),
+		BaseURL:   p.URL(),
+		Models:    append([]string(nil), p.Models...),
+		ExtraBody: cloneAnyMap(p.ExtraBody),
+	}
+}
+
+func (p ConfigProfile) validate() error {
+	provider := p.ProviderName()
+	if provider == "" {
+		return fmt.Errorf("%s: provider/name is required", p.Path)
+	}
+	if err := validateConfigText("config profile provider", provider); err != nil {
+		return err
+	}
+	if err := validateProviderConfigText(provider, p.providerConfig()); err != nil {
+		return err
+	}
+	model := p.PrimaryModel()
+	if model == "" {
+		return fmt.Errorf("%s: model or models[0] is required", p.Path)
+	}
+	if err := validateConfigText("config profile model", model); err != nil {
+		return err
+	}
+	return nil
+}
+
+// LoadConfigProfiles 读取项目目录下的模型配置档案。目录不存在时返回空列表。
+func LoadConfigProfiles(dir string) ([]ConfigProfile, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("读取配置目录 %s 失败: %w", dir, err)
+	}
+
+	var files []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if isConfigProfileExampleFile(entry.Name()) {
+			continue
+		}
+		if strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+			files = append(files, filepath.Join(dir, entry.Name()))
+		}
+	}
+	sort.Strings(files)
+
+	profiles := make([]ConfigProfile, 0, len(files))
+	for _, path := range files {
+		profile, err := loadConfigProfile(path)
+		if err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, profile)
+	}
+	return profiles, nil
+}
+
+func isConfigProfileExampleFile(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	return name == "example.json" || strings.HasSuffix(name, ".example.json")
+}
+
+func loadConfigProfile(path string) (ConfigProfile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ConfigProfile{}, err
+	}
+	var profile ConfigProfile
+	if err := json.Unmarshal(stripJSONComments(data), &profile); err != nil {
+		return ConfigProfile{}, fmt.Errorf("parse %s: %w", path, err)
+	}
+	profile.Path = path
+	if err := profile.validate(); err != nil {
+		return ConfigProfile{}, err
+	}
+	return profile, nil
+}
+
+func mergeConfigProfiles(base Config, profiles []ConfigProfile) Config {
+	if len(profiles) == 0 {
+		return base
+	}
+	if base.Providers == nil {
+		base.Providers = make(map[string]ProviderConfig)
+	}
+
+	active := profiles[0]
+	for _, profile := range profiles {
+		provider := profile.ProviderName()
+		existing := base.Providers[provider]
+		next := profile.providerConfig()
+		if next.Type != "" {
+			existing.Type = next.Type
+		}
+		if next.APIKey != "" {
+			existing.APIKey = next.APIKey
+		}
+		if next.BaseURL != "" {
+			existing.BaseURL = next.BaseURL
+		}
+		if len(next.Models) > 0 {
+			existing.Models = append([]string(nil), next.Models...)
+		}
+		if len(next.ExtraBody) > 0 {
+			existing.ExtraBody = cloneAnyMap(next.ExtraBody)
+		}
+		base.Providers[provider] = existing
+		if profile.Default {
+			active = profile
+		}
+	}
+
+	base.Provider = active.ProviderName()
+	base.ModelName = active.PrimaryModel()
+	base.ActiveProfilePath = active.Path
+	if active.ContextWindow > 0 {
+		base.ContextWindow = active.ContextWindow
+	}
+	base.Profiles = append([]ConfigProfile(nil), profiles...)
+	return base
+}
+
+// ApplyConfigProfile 将已加载的 configs 档案应用为当前默认模型配置。
+// selector 优先匹配配置文件路径；为兼容内部旧调用，也回退匹配 provider。
+func ApplyConfigProfile(base Config, selector string) (Config, ConfigProfile, error) {
+	for _, profile := range base.Profiles {
+		if profile.Path != selector && profile.ProviderName() != selector {
+			continue
+		}
+		if base.Providers == nil {
+			base.Providers = make(map[string]ProviderConfig)
+		}
+		base.Providers[profile.ProviderName()] = profile.providerConfig()
+		base.Provider = profile.ProviderName()
+		base.ModelName = profile.PrimaryModel()
+		base.ActiveProfilePath = profile.Path
+		if profile.ContextWindow > 0 {
+			base.ContextWindow = profile.ContextWindow
+		}
+		return base, profile, nil
+	}
+	return base, ConfigProfile{}, fmt.Errorf("配置文件不存在：%s", selector)
+}
+
+func slugConfigName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || r == '.' || r == ' ':
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 // stripJSONComments 去除 JSON 中的 // 行注释，跟踪引号状态避免误删字符串内容。

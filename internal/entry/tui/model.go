@@ -58,6 +58,7 @@ type Model struct {
 	cocreate       *cocreateState
 	help           *helpState
 	modelSwitch    *modelSwitchState
+	configSwitch   *configSwitchState
 	report         *reportState
 	importer       *importState
 	importSeq      int
@@ -634,6 +635,9 @@ func (m Model) View() string {
 	// 弹窗覆盖叠加：浮在 body 底部上方，不影响布局
 	if m.modelSwitch != nil {
 		commandBar := renderModelSwitchBar(m.width, m.modelSwitch)
+		view = overlayAboveInput(view, commandBar, inputH)
+	} else if m.configSwitch != nil {
+		commandBar := renderConfigSwitchBar(m.width, m.configSwitch)
 		view = overlayAboveInput(view, commandBar, inputH)
 	} else if m.compActive {
 		commandBar := renderCommandPalette(m.width, m.compItems, m.compIdx)
